@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 import {MindARThree} from 'mindar-image-three';
-const SETTINGS={targetSrc:'./targets.mind',modelA:'./chess gameA.glb',modelB:'./chess gameB.glb',height:0.66,cycle:3.3,approach:0.46,filterMinCF:0.0001,filterBeta:0.001};
+const SETTINGS={targetSrc:'./targets.mind',modelA:'./chess gameA.glb',modelB:'./chess gameB.glb',height:0.66,cycle:3.3,approach:3,filterMinCF:0.0001,filterBeta:0.001};
 const mindar=new MindARThree({container:document.querySelector('#container'),imageTargetSrc:SETTINGS.targetSrc,maxTrack:2,filterMinCF:SETTINGS.filterMinCF,filterBeta:SETTINGS.filterBeta,missTolerance:8,warmupTolerance:3});
 const {renderer,scene,camera}=mindar;
 scene.add(new THREE.HemisphereLight(0xd9eaff,0x302a36,2.3));
