@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>PicA × PicB | Chess Clash AR</title>
+<style>html,body{margin:0;height:100%;overflow:hidden;background:#080b12;font-family:system-ui,'Malgun Gothic',sans-serif}#container{position:fixed;inset:0}#start{position:fixed;inset:0;z-index:10;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:26px;color:white;text-align:center;background:linear-gradient(140deg,#101c30,#090b12)}h1{font-size:30px;margin:0;letter-spacing:2px}p{line-height:1.7;color:#cbd5e1;max-width:380px}button{border:0;border-radius:50px;background:#f3cb76;color:#151515;padding:14px 35px;font-size:17px;font-weight:700}#hud{position:fixed;z-index:4;left:12px;top:12px;background:#07101acb;color:white;border:1px solid #ffffff33;border-radius:12px;padding:11px 14px;font-size:13px;line-height:1.7;white-space:pre-line}#hud[hidden]{display:none}#note{position:fixed;z-index:4;bottom:15px;left:12px;right:12px;text-align:center;color:white;font-size:12px;text-shadow:0 1px 5px black;pointer-events:none}</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","mindar-image-three":"https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script></head>
+<body><div id="container"></div><div id="start"><h1>♔ CHESS CLASH ♛</h1><p>PicA와 PicB를 카메라에 동시에 비추면<br>두 체스 기물이 등장해 충돌합니다.<br>두 이미지를 나란히 놓으면 더욱 안정적입니다.</p><button id="startBtn">AR 시작하기</button></div><div id="hud" hidden></div><div id="note">PicA = chess gameA.glb · PicB = chess gameB.glb</div>
+<script type="module">
+import * as THREE from 'three';
+import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
+import {MindARThree} from 'mindar-image-three';
+const SETTINGS={targetSrc:'./targets.mind',modelA:'./chess gameA.glb',modelB:'./chess gameB.glb',height:0.66,cycle:3.3,approach:0.46,filterMinCF:0.0001,filterBeta:0.001};
+const mindar=new MindARThree({container:document.querySelector('#container'),imageTargetSrc:SETTINGS.targetSrc,maxTrack:2,filterMinCF:SETTINGS.filterMinCF,filterBeta:SETTINGS.filterBeta,missTolerance:8,warmupTolerance:3});
+const {renderer,scene,camera}=mindar;
+scene.add(new THREE.HemisphereLight(0xd9eaff,0x302a36,2.3));
+const light=new THREE.DirectionalLight(0xffe7bd,3.0);light.position.set(-2,4,5);scene.add(light);
+const fill=new THREE.DirectionalLight(0x739bff,1.6);fill.position.set(3,1,-2);scene.add(fill);
+const gltfLoader=new GLTFLoader();
+async function loadChessModel(url, parent){
+ const gltf=await gltfLoader.loadAsync(url);
+ const model=gltf.scene;
+ // Center the supplied GLB and put its bottom on the image plane.
+ // Keep its authored materials and mesh geometry intact.
+ const bounds=new THREE.Box3().setFromObject(model);
+ const size=bounds.getSize(new THREE.Vector3());
+ const center=bounds.getCenter(new THREE.Vector3());
+ const pivot=new THREE.Group();
+ model.position.sub(center);
+ pivot.add(model);
+ // Models exported lying along Z are rotated upright; otherwise preserve orientation.
+ if(size.z>size.y*1.4 && size.z>size.x*1.4) pivot.rotation.x=-Math.PI/2;
+ pivot.updateMatrixWorld(true);
+ const uprightBox=new THREE.Box3().setFromObject(pivot);
+ const uprightSize=uprightBox.getSize(new THREE.Vector3());
+ const scale=SETTINGS.height/Math.max(uprightSize.y,0.0001);
+ const holder=new THREE.Group(); holder.scale.setScalar(scale);
+ pivot.position.y-=uprightBox.min.y;
+ holder.add(pivot);parent.add(holder);
+ return gltf;
+}
+function makeCard(index,type){
+ const anchor=mindar.addAnchor(index),stand=new THREE.Group();stand.rotation.x=Math.PI/2;anchor.group.add(stand);
+ const mover=new THREE.Group();stand.add(mover);
+ const tilt=new THREE.Group();mover.add(tilt);
+ const piece=new THREE.Group();tilt.add(piece);
+ const state={anchor,stand,mover,tilt,piece,visible:false,type};
+ anchor.onTargetFound=()=>{state.visible=true;};anchor.onTargetLost=()=>{state.visible=false;};
+ return state;
+}
+const A=makeCard(0,'king'),B=makeCard(1,'queen');
+let modelsReady=false;
+async function prepareModels(){
+ await Promise.all([loadChessModel(SETTINGS.modelA,A.piece),loadChessModel(SETTINGS.modelB,B.piece)]);
+ modelsReady=true;
+}
+// 충격파는 두 카드 사이의 월드 좌표에 표시한다.
+const shockMaterial=new THREE.MeshBasicMaterial({color:0xffce65,transparent:true,opacity:0,side:THREE.DoubleSide,depthWrite:false});
+const shock=new THREE.Mesh(new THREE.TorusGeometry(.12,.013,8,64),shockMaterial);shock.visible=false;scene.add(shock);
+const sparkMat=new THREE.MeshBasicMaterial({color:0xffe8a5,transparent:true,opacity:.9,depthWrite:false});
+const sparks=Array.from({length:14},()=>{const s=new THREE.Mesh(new THREE.SphereGeometry(.012,8,8),sparkMat.clone());s.visible=false;scene.add(s);return s;});
+const posA=new THREE.Vector3(),posB=new THREE.Vector3(),dir=new THREE.Vector3(),center=new THREE.Vector3(),worldTarget=new THREE.Vector3();
+const localA=new THREE.Vector3(),localB=new THREE.Vector3();
+const clock=new THREE.Clock();let elapsed=0,wasBoth=false,cycleStart=0;
+const smooth=t=>t*t*(3-2*t);
+function update(dt){
+ elapsed+=dt;scene.updateMatrixWorld(true);
+ const both=A.visible&&B.visible;
+ const hud=document.querySelector('#hud');
+ if(!both){wasBoth=false;A.mover.position.set(0,0,0);B.mover.position.set(0,0,0);A.tilt.rotation.set(0,0,0);B.tilt.rotation.set(0,0,0);shock.visible=false;sparks.forEach(s=>s.visible=false);hud.textContent=`PicA: ${A.visible?'✓ 인식':'○ 탐색 중'}\nPicB: ${B.visible?'✓ 인식':'○ 탐색 중'}\n${A.visible||B.visible?'다른 이미지를 함께 비춰주세요':'두 이미지를 카메라에 비춰주세요'}`;return;}
+ if(!wasBoth){cycleStart=elapsed;wasBoth=true;}
+ A.anchor.group.getWorldPosition(posA);B.anchor.group.getWorldPosition(posB);
+ center.copy(posA).add(posB).multiplyScalar(.5);
+ dir.copy(posB).sub(posA);const distance=dir.length();if(distance<.001)return;dir.normalize();
+ // 각각의 기물은 카드 중심에서 출발해 두 카드의 중간 지점까지 접근한다.
+ const t=(elapsed-cycleStart)%SETTINGS.cycle;
+ let advance=0,impact=0,retreat=0;
+ if(t<1.25)advance=smooth(t/1.25);
+ else if(t<1.52){advance=1;impact=1-(t-1.25)/.27;}
+ else if(t<2.22){retreat=smooth((t-1.52)/.70);advance=1-.64*retreat;}
+ else{advance=.36*(1-smooth((t-2.22)/(SETTINGS.cycle-2.22)));}
+ const travel=Math.max(0,distance*.5-.06)*advance;
+ worldTarget.copy(posA).addScaledVector(dir,travel);localA.copy(worldTarget);A.stand.worldToLocal(localA);A.mover.position.copy(localA);
+ worldTarget.copy(posB).addScaledVector(dir,-travel);localB.copy(worldTarget);B.stand.worldToLocal(localB);B.mover.position.copy(localB);
+ // 두 모델이 실제로 서로를 향하도록 회전한다.
+ const aFacing=A.stand.worldToLocal(posB.clone());const bFacing=B.stand.worldToLocal(posA.clone());
+ A.tilt.rotation.y=Math.atan2(aFacing.x,aFacing.z);B.tilt.rotation.y=Math.atan2(bFacing.x,bFacing.z);
+ const wobble=Math.sin(t*55)*impact*.17;
+ A.tilt.rotation.z=wobble;B.tilt.rotation.z=-wobble;
+ A.tilt.position.y=impact*Math.abs(Math.sin(t*45))*.05;
+ B.tilt.position.y=impact*Math.abs(Math.sin(t*45+1))*.05;
+ if(t>=1.25&&t<1.95){
+ const k=(t-1.25)/.7;shock.visible=true;shock.position.copy(center);shock.quaternion.copy(camera.quaternion);shock.scale.setScalar(.35+k*3.0);shockMaterial.opacity=(1-k)*.85;
+ sparks.forEach((s,i)=>{const angle=i*Math.PI*2/sparks.length;s.visible=true;s.position.copy(center).add(new THREE.Vector3(Math.cos(angle)*k*.28,Math.sin(angle)*k*.28,.04*Math.sin(i*3+k*8)));s.material.opacity=1-k;s.scale.setScalar(.7+k);});
+ }else{shock.visible=false;sparks.forEach(s=>s.visible=false);}
+ hud.textContent=`PicA: ✓ MODEL A\nPicB: ✓ MODEL B\n상태: ${t<1.25?'⚔ 돌진':t<1.95?'💥 충돌': '↩ 후퇴 / 재정비'}`;
+}
+document.querySelector('#startBtn').addEventListener('click',async()=>{
+ const btn=document.querySelector('#startBtn');btn.disabled=true;btn.textContent='카메라 준비 중...';
+ try{btn.textContent='3D 모델 로딩 중...';await prepareModels();btn.textContent='카메라 준비 중...';await mindar.start();document.querySelector('#start').remove();document.querySelector('#hud').hidden=false;renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setAnimationLoop(()=>{update(Math.min(clock.getDelta(),.06));renderer.render(scene,camera);});}
+ catch(e){console.error(e);btn.disabled=false;btn.textContent='다시 시도';document.querySelector('#start').querySelector('p').textContent='실행 오류: '+e.message+' / HTTPS 주소, 카메라 권한, GLB 파일과 targets.mind 경로를 확인해주세요.';}
+});
+</script></body></html>
