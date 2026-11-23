@@ -76,7 +76,7 @@ function update(dt){
  else if(t<1.52){advance=1;impact=1-(t-1.25)/.27;}
  else if(t<2.22){retreat=smooth((t-1.52)/.70);advance=1-.64*retreat;}
  else{advance=.36*(1-smooth((t-2.22)/(SETTINGS.cycle-2.22)));}
- const travel=Math.max(0,distance*.5-.35)*advance;
+ const travel=Math.max(0,distance*.5-.1)*advance;
  worldTarget.copy(posA).addScaledVector(dir,travel);localA.copy(worldTarget);A.stand.worldToLocal(localA);A.mover.position.copy(localA);
  worldTarget.copy(posB).addScaledVector(dir,-travel);localB.copy(worldTarget);B.stand.worldToLocal(localB);B.mover.position.copy(localB);
  // 두 모델이 실제로 서로를 향하도록 회전한다.
